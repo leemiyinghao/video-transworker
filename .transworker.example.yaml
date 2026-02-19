@@ -1,0 +1,27 @@
+# If true, files within the same first-level directory will be processed as a single group.
+# If false, every file is processed individually.
+merge_files: false
+
+# Target quality level for encoding. 
+# 0: Low, 1: Medium, 2: High
+target_quality: 1
+
+# Maximum resolution constraints for the output video.
+max_resolution:
+  width: 3840
+  height: 3840
+
+# Maximum frames per second for the output video.
+max_fps: 60
+
+# Maximum number of concurrent encoding tasks.
+# Recommended: 2 for general GPU pipelines to avoid memory exhaustion.
+max_concurrency: 2
+
+# List of codecs to skip during encoding.
+# Options: "av1", "h264", "h265", "vp9"
+# Files using these codecs will be passed through or ignored based on task logic.
+skip_codecs:
+  - "av1"
+  - "h265"
+  - "vp9"
