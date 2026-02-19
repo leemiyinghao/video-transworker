@@ -33,15 +33,20 @@ func NewFFMpegTransWorker(ctx context.Context, options TransWorkerOptions) *FFMp
 }
 
 func (w *FFMpegTransWorker) run(ctx context.Context) {
-	select {
-	case <-ctx.Done():
-		return
-	case task, ok := <-w.taskCh:
-		if !ok {
+	defer func() {
+		fmt.Println("worker exiting")
+	}()
+	for {
+		select {
+		case <-ctx.Done():
 			return
+		case task, ok := <-w.taskCh:
+			if !ok {
+				return
+			}
+			result := w.transcode(ctx, task)
+			w.resultCh <- result
 		}
-		result := w.transcode(ctx, task)
-		w.resultCh <- result
 	}
 }
 
