@@ -205,31 +205,42 @@ func (w *FFMpegTransWorker) transcode(ctx context.Context, task ParsedTranscodin
 }
 
 func monoFileFFPipeline(ctx context.Context, inputFilePath string, outputFilePath string, globalQuality int, maxBitrate uint, maxFps float64, maxResolution MaxResolution) error {
-	input := ffmpeg.Input(inputFilePath, ffmpeg.KwArgs{"init_hw_device": "vaapi=gpu"})
-	if maxFps > 0 {
-		input = input.Filter("fps", ffmpeg.Args{fmt.Sprintf("fps=%f", maxFps)})
+	needCPUProcessing := maxFps > 0 || (maxResolution.Width > 0 && maxResolution.Height > 0)
+	var input *ffmpeg.Stream
+	if needCPUProcessing {
+		input = ffmpeg.Input(inputFilePath, ffmpeg.KwArgs{"init_hw_device": "vaapi=gpu"})
+		if maxFps > 0 {
+			input = input.Filter("fps", ffmpeg.Args{fmt.Sprintf("fps=%f", maxFps)})
+		}
+		if maxResolution.Width > 0 && maxResolution.Height > 0 {
+			input = input.Filter("scale", ffmpeg.Args{fmt.Sprintf("w='min(%d,iw)':h='min(%d,ih)':force_original_aspect_ratio=decrease", maxResolution.Width, maxResolution.Height)})
+		}
+		input = input.Filter("format", ffmpeg.Args{"nv12"}).Filter("hwupload", nil) // Standard VAAPI bridge
+	} else {
+		input = ffmpeg.Input(inputFilePath, ffmpeg.KwArgs{"hwaccel": "vaapi", "hwaccel_device": "/dev/dri/renderD128", "hwaccel_output_format": "vaapi"})
 	}
-	if maxResolution.Width > 0 && maxResolution.Height > 0 {
-		input = input.Filter("scale", ffmpeg.Args{fmt.Sprintf("w='min(%d,iw)':h='min(%d,ih)':force_original_aspect_ratio=decrease", maxResolution.Width, maxResolution.Height)})
+
+	outputKwargs := ffmpeg.KwArgs{
+		"c:v":            "av1_vaapi",
+		"global_quality": strconv.Itoa(globalQuality),
+		"rc_mode":        "QVBR",
+		"c:a":            "copy",
+		"c:s":            "copy",
+		"map:a":          "0:a?",
+		"map:s":          "0:s?",
+		"async_depth":    "8",
+		"b:v":            strconv.Itoa(int(maxBitrate)/1000) + "k",
+		"maxrate":        strconv.Itoa(int(maxBitrate)/1000) + "k",
 	}
-	input = input.Filter("format", ffmpeg.Args{"nv12"}).Filter("hwupload", nil) // Standard VAAPI bridge
+	if !needCPUProcessing {
+		outputKwargs["map:v"] = "0:v:0"
+	}
 
 	return ffmpeg.
 		OutputContext(ctx,
 			[]*ffmpeg.Stream{input},
 			outputFilePath,
-			ffmpeg.KwArgs{
-				"c:v":            "av1_vaapi",
-				"global_quality": strconv.Itoa(globalQuality),
-				"rc_mode":        "QVBR",
-				"c:a":            "copy",
-				"c:s":            "copy",
-				"map:a":          "0:a?",
-				"map:s":          "0:s?",
-				"async_depth":    "8",
-				"b:v":            strconv.Itoa(int(maxBitrate)/1000) + "k",
-				"maxrate":        strconv.Itoa(int(maxBitrate)/1000) + "k",
-			},
+			outputKwargs,
 		).
 		OverWriteOutput().
 		Run()
